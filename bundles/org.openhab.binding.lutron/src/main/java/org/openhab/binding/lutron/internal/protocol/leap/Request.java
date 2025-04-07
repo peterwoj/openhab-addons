@@ -76,6 +76,7 @@ public class Request {
 
         return leapRequest;
     }
+
     private static LeapRequest getCreateRequest(CommandType commandType, String url) {
         LeapRequest leapRequest = getLeapRequest(CommuniqueType.CREATEREQUEST, url);
 
