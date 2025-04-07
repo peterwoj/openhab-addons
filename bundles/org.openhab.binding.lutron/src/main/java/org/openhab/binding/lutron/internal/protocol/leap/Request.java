@@ -16,8 +16,6 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.openhab.binding.lutron.internal.protocol.FanSpeedType;
 import org.openhab.binding.lutron.internal.protocol.leap.dto.LeapRequest;
 
-import com.google.gson.Gson;
-
 /**
  * Contains static methods for constructing LEAP messages
  *
@@ -28,87 +26,64 @@ public class Request {
     public static final String BUTTON_GROUP_URL = "/buttongroup";
 
     public static String goToLevel(int zone, int value) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/zone/%d/commandprocessor"},\
-                "Body": {\
-                "Command": {\
-                "CommandType": "GoToLevel",\
-                "Parameter": [{"Type": "Level", "Value": %d}]}}}\
-                """;
-        return String.format(request, zone, value);
+        return goToDimmedLevel(zone, value, "00:00:00");
     }
 
     /** fadeTime must be in the format hh:mm:ss **/
     public static String goToDimmedLevel(int zone, int value, String fadeTime) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/zone/%d/commandprocessor"},"Body": {"Command": {\
-                "CommandType": "GoToDimmedLevel",\
-                "DimmedLevelParameters": {"Level": %d, "FadeTime": "%s"}}}}\
-                """;
-        return String.format(request, zone, value, fadeTime);
+        return goToDimmedLevel(zone, value, fadeTime, "00:00:00");
     }
 
     /** fadeTime and delayTime must be in the format hh:mm:ss **/
     public static String goToDimmedLevel(int zone, int value, String fadeTime, String delayTime) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/zone/%d/commandprocessor"},"Body": {"Command": {\
-                "CommandType": "GoToDimmedLevel",\
-                "DimmedLevelParameters": {"Level": %d, "FadeTime": "%s", "DelayTime": "%s"}}}}\
-                """;
-        return String.format(request, zone, value, fadeTime, delayTime);
+        LeapRequest req = getCreateRequest(CommandType.GOTODIMMEDLEVEL,
+                String.format("/zone/%d/commandprocessor", zone));
+        req.body.command.dimmedLevelParameters = new LeapRequest.Body.Command.DimmedLevelParameters(value, fadeTime,
+                delayTime);
+        return req.toString();
     }
 
     public static String goToFanSpeed(int zone, FanSpeedType fanSpeed) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/zone/%d/commandprocessor"},\
-                "Body": {\
-                "Command": {"CommandType": "GoToFanSpeed",\
-                "FanSpeedParameters": {"FanSpeed": "%s"}}}}\
-                """;
-        return String.format(request, zone, fanSpeed.leapValue());
+        LeapRequest req = getCreateRequest(CommandType.GOTOFANSPEED, String.format("/zone/%d/commandprocessor", zone));
+        req.body.command.fanSpeedParameters = new LeapRequest.Body.Command.FanSpeedParameters(fanSpeed);
+        return req.toString();
     }
 
     public static String buttonCommand(int button, CommandType command) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/button/%d/commandprocessor"},\
-                "Body": {"Command": {"CommandType": "%s"}}}\
-                """;
-        return String.format(request, button, command.toString());
+        LeapRequest req = getCreateRequest(command, String.format("/button/%d/commandprocessor", button));
+        return req.toString();
     }
 
     public static String virtualButtonCommand(int virtualbutton, CommandType command) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/virtualbutton/%d/commandprocessor"},\
-                "Body": {"Command": {"CommandType": "%s"}}}\
-                """;
-        return String.format(request, virtualbutton, command.toString());
+        LeapRequest req = getCreateRequest(command, String.format("/virtualbutton/%d/commandprocessor", virtualbutton));
+        return req.toString();
     }
 
     public static String zoneCommand(int zone, CommandType commandType) {
-        String request = """
-                {"CommuniqueType": "CreateRequest",\
-                "Header": {"Url": "/zone/%d/commandprocessor"},\
-                "Body": {\
-                "Command": {\
-                "CommandType": "%s"}}}\
-                """;
-        return String.format(request, zone, commandType.toString());
+        LeapRequest req = getCreateRequest(commandType, String.format("/zone/%d/commandprocessor", zone));
+        return req.toString();
     }
 
     public static String request(CommuniqueType cType, String url) {
+        LeapRequest leapRequest = getLeapRequest(cType, url);
+        return leapRequest.toString();
+    }
+
+    private static LeapRequest getLeapRequest(CommuniqueType cType, String url) {
         LeapRequest leapRequest = new LeapRequest();
         leapRequest.communiqueType = cType.toString();
-        leapRequest.header = new LeapRequest.Header();
         leapRequest.header.url = url;
 
-        Gson gson = new Gson();
-        return gson.toJson(leapRequest);
+        return leapRequest;
+    }
+    private static LeapRequest getCreateRequest(CommandType commandType, String url) {
+        LeapRequest leapRequest = getLeapRequest(CommuniqueType.CREATEREQUEST, url);
+
+        leapRequest.body = new LeapRequest.Body();
+        leapRequest.body.command = new LeapRequest.Body.Command();
+        leapRequest.body.command.commandType = commandType.toString();
+
+        return leapRequest;
     }
 
     public static String ping() {
