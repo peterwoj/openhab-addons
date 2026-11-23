@@ -23,9 +23,6 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +32,7 @@ import org.slf4j.LoggerFactory;
  * be sent via {@link #sendCommand(String)} and responses will be received on the {@link SocketSessionCallback}
  *
  * @author Tim Roberts - Initial contribution
+ * @author Peter J Wojciechowski - Stop worker threads reliably on disconnect
  */
 public class SocketSession {
     private final Logger logger = LoggerFactory.getLogger(SocketSession.class);
@@ -69,19 +67,26 @@ public class SocketSession {
     private BufferedReader reader;
 
     /**
-     * The {@link ResponseReader} that will be used to read from {@link #reader}
+     * How long {@link #disconnect()} waits for each worker thread to finish
      */
-    private final ResponseReader responseReader = new ResponseReader();
+    private static final long WORKER_STOP_TIMEOUT_MS = 5_000;
 
     /**
-     * The responses read from the {@link #responseReader}
+     * The responses read by the {@link ResponseReader}
      */
     private final BlockingQueue<Object> responsesQueue = new ArrayBlockingQueue<>(50);
 
     /**
-     * The dispatcher of responses from {@link #responsesQueue}
+     * Whether the workers of the current connection should keep running. Each connection has its own flag, so a
+     * worker of an earlier connection can never be revived by a later one.
      */
-    private final Dispatcher dispatcher = new Dispatcher();
+    private AtomicBoolean workersActive = new AtomicBoolean(false);
+
+    /**
+     * The worker threads of the current connection. Null if not connected
+     */
+    private Thread readerThread;
+    private Thread dispatcherThread;
 
     /**
      * The {@link SocketSessionCallback} that the {@link #dispatcher} will call
@@ -123,8 +128,8 @@ public class SocketSession {
 
     /**
      * Will attempt to connect to the {@link #host} on port {@link #port}. If we are current connected, will
-     * {@link #disconnect()} first. Once connected, the {@link #writer} and {@link #reader} will be created, the
-     * {@link #dispatcher} and {@link #responseReader} will be started.
+     * {@link #disconnect()} first. Once connected, the {@link #writer} and {@link #reader} will be created and the
+     * {@link Dispatcher} and {@link ResponseReader} threads will be started.
      *
      * @throws java.io.IOException if an exception occurs during the connection attempt
      */
@@ -139,15 +144,20 @@ public class SocketSession {
         writer = new PrintStream(client.getOutputStream());
         reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
 
-        new Thread(responseReader, "OH-binding-" + uid + "-responseReader").start();
-        new Thread(dispatcher, "OH-binding-" + uid + "-dispatcher").start();
+        responsesQueue.clear();
+        final AtomicBoolean active = new AtomicBoolean(true);
+        workersActive = active;
+        readerThread = new Thread(new ResponseReader(active, reader), "OH-binding-" + uid + "-responseReader");
+        dispatcherThread = new Thread(new Dispatcher(active), "OH-binding-" + uid + "-dispatcher");
+        readerThread.start();
+        dispatcherThread.start();
     }
 
     /**
      * Disconnects from the {@link #host} if we are {@link #isConnected()}. The {@link #writer}, {@link #reader} and
      * {@link #client}
-     * will be closed and set to null. The {@link #dispatcher} and {@link #responseReader} will be stopped, the
-     * {@link #callback} will be nulled and the {@link #responsesQueue} will be cleared.
+     * will be closed and set to null. The worker threads will be stopped, the {@link #callback} will be nulled and the
+     * {@link #responsesQueue} will be cleared.
      *
      * @throws java.io.IOException if an exception occurs during the disconnect attempt
      */
@@ -155,8 +165,8 @@ public class SocketSession {
         if (isConnected()) {
             logger.debug("Disconnecting from {}:{}", host, port);
 
-            dispatcher.stopRunning();
-            responseReader.stopRunning();
+            // Stop the workers before closing the socket, so the reader does not report the close as a failure
+            workersActive.set(false);
 
             writer.close();
             writer = null;
@@ -167,8 +177,32 @@ public class SocketSession {
             client.close();
             client = null;
 
+            stopWorker(readerThread);
+            stopWorker(dispatcherThread);
+            readerThread = null;
+            dispatcherThread = null;
+
             callback.set(null);
             responsesQueue.clear();
+        }
+    }
+
+    /**
+     * Interrupts a worker thread and waits a bounded time for it to finish. A worker that disconnects its own session,
+     * for example from a callback, is not waited for.
+     */
+    private void stopWorker(Thread worker) {
+        if (worker == null || worker.equals(Thread.currentThread())) {
+            return;
+        }
+        worker.interrupt();
+        try {
+            worker.join(WORKER_STOP_TIMEOUT_MS);
+            if (worker.isAlive()) {
+                logger.warn("Worker thread {} did not stop", worker.getName());
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -209,62 +243,30 @@ public class SocketSession {
      *
      */
     private class ResponseReader implements Runnable {
+        private final AtomicBoolean active;
+        private final BufferedReader in;
 
-        /**
-         * Whether the reader is currently rRunning
-         */
-        private final AtomicBoolean isRunning = new AtomicBoolean(false);
-
-        /**
-         * Locking to allow proper shutdown of the reader
-         */
-        private final Lock rLock = new ReentrantLock();
-        private final Condition rRunning = rLock.newCondition();
-
-        /**
-         * Stops the reader. Will wait 5 seconds for the runnable to stop (should stop within 1 second based on the
-         * setSOTimeout)
-         */
-        public void stopRunning() {
-            rLock.lock();
-            try {
-                if (isRunning.getAndSet(false)) {
-                    if (!rRunning.await(5, TimeUnit.SECONDS)) {
-                        logger.warn("Waited too long for dispatcher to finish");
-                    }
-                }
-            } catch (InterruptedException e) {
-                // shouldn't happen
-            } finally {
-                rLock.unlock();
-            }
+        ResponseReader(AtomicBoolean active, BufferedReader in) {
+            this.active = active;
+            this.in = in;
         }
 
         /**
-         * Runs the logic to read from the socket until {@link #isRunning} is false. A 'response' is anything that ends
-         * with a carriage-return/newline combo. Additionally, the special "login" prompts are
-         * treated as responses for purposes of logging in.
+         * Runs the logic to read characters until {@link #active} is false. A response is considered a set of
+         * characters that end with a carriage return/linefeed or with "login: ".
          */
         @Override
         public void run() {
             final StringBuilder sb = new StringBuilder(100);
             int c;
 
-            isRunning.set(true);
-            responsesQueue.clear();
-
-            while (isRunning.get()) {
+            while (active.get()) {
                 try {
-                    // if reader is null, sleep and try again
-                    if (reader == null) {
-                        Thread.sleep(250);
-                        continue;
-                    }
-
-                    c = reader.read();
+                    c = in.read();
                     if (c == -1) {
-                        responsesQueue.put(new IOException("server closed connection"));
-                        isRunning.set(false);
+                        if (active.get()) {
+                            responsesQueue.put(new IOException("server closed connection"));
+                        }
                         break;
                     }
                     final char ch = (char) c;
@@ -278,26 +280,20 @@ public class SocketSession {
                             responsesQueue.put(response);
                         }
                     }
-                    // logger.debug(">>> reading: " + sb + ":" + (int) ch);
                 } catch (SocketTimeoutException e) {
-                    // do nothing - we expect this (setSOTimeout) to check the _isReading
+                    // do nothing - we expect this (setSOTimeout) to check whether we should stop
                 } catch (InterruptedException e) {
-                    // Do nothing - probably shutting down
+                    break; // stopping
                 } catch (IOException e) {
-                    try {
-                        isRunning.set(false);
-                        responsesQueue.put(e);
-                    } catch (InterruptedException e1) {
-                        // Do nothing - probably shutting down
+                    if (active.get()) {
+                        try {
+                            responsesQueue.put(e);
+                        } catch (InterruptedException e1) {
+                            // stopping
+                        }
                     }
+                    break;
                 }
-            }
-
-            rLock.lock();
-            try {
-                rRunning.signalAll();
-            } finally {
-                rLock.unlock();
             }
         }
     }
@@ -305,50 +301,21 @@ public class SocketSession {
     /**
      * The dispatcher runnable is responsible for reading the response queue and dispatching it to the current callable.
      * Since the dispatcher is ONLY started when a callable is set, responses may pile up in the queue and be dispatched
-     * when a callable is set. Unlike the socket reader, this can be assigned to another thread (no state outside of the
-     * class).
+     * when a callable is set. Unlike the socket reader, this can be assigned to another thread (no state outside of
+     * the class).
      *
      * @author Tim Roberts
      */
     private class Dispatcher implements Runnable {
+        private final AtomicBoolean active;
 
-        /**
-         * Whether the dispatcher is rRunning or not
-         */
-        private final AtomicBoolean dispatcherRunning = new AtomicBoolean(false);
-
-        /**
-         * Locking to allow proper shutdown of the reader
-         */
-        private final Lock dLock = new ReentrantLock();
-        private final Condition dRunning = dLock.newCondition();
-
-        /**
-         * Stops the reader. Will wait 5 seconds for the runnable to stop (should stop within 1 second based on the poll
-         * timeout below)
-         */
-        public void stopRunning() {
-            dLock.lock();
-            try {
-                if (dispatcherRunning.getAndSet(false)) {
-                    if (!dRunning.await(5, TimeUnit.SECONDS)) {
-                        logger.warn("Waited too long for dispatcher to finish");
-                    }
-                }
-            } catch (InterruptedException e) {
-                // do nothing
-            } finally {
-                dLock.unlock();
-            }
+        Dispatcher(AtomicBoolean active) {
+            this.active = active;
         }
 
-        /**
-         * Runs the logic to dispatch any responses to the current callback until {@link #isRunning} is false.
-         */
         @Override
         public void run() {
-            dispatcherRunning.set(true);
-            while (dispatcherRunning.get()) {
+            while (active.get()) {
                 try {
                     final SocketSessionCallback ssCallback = callback.get();
 
@@ -363,7 +330,7 @@ public class SocketSession {
                     // The callback may have been replaced while waiting, for example when a login completes, so
                     // deliver to the current one rather than to the one that was set when the wait began
                     final SocketSessionCallback current = callback.get();
-                    if (response != null && current == null) {
+                    if (response != null && (current == null || !active.get())) {
                         logger.debug("Dropping response received after disconnect: {}", response);
                     } else if (response != null) {
                         if (response instanceof String str) {
@@ -381,16 +348,8 @@ public class SocketSession {
                         }
                     }
                 } catch (InterruptedException e) {
-                    // Do nothing
+                    break; // stopping
                 }
-            }
-
-            dLock.lock();
-            try {
-                // Signal that we are done
-                dRunning.signalAll();
-            } finally {
-                dLock.unlock();
             }
         }
     }

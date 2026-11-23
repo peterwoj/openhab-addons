@@ -197,6 +197,20 @@ public class SocketSessionTest {
     }
 
     @Test
+    public void immediateDisconnectLeavesNoWorkerThreads() throws Exception {
+        for (int i = 0; i < 20; i++) {
+            session.connect();
+            session.disconnect();
+        }
+
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(WAIT_SECONDS);
+        while (sessionThreads() > 0 && System.nanoTime() < deadline) {
+            Thread.sleep(100);
+        }
+        assertEquals(0, sessionThreads(), "worker threads kept running after disconnect");
+    }
+
+    @Test
     public void reconnectReplacesTheConnection() throws Exception {
         session.setCallback(callback);
         session.connect();
