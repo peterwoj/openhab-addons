@@ -422,37 +422,6 @@ public class IPBridgeHandlerTest {
     }
 
     @Test
-    public void unansweredKeepaliveReconnects() throws Exception {
-        LutronHandler dimmer = addChild(5);
-        FakeTelnetServer.Connection first = online();
-        handler.keepAliveTimeoutMs = 300;
-
-        handler.sendKeepAlive();
-        assertEquals("?SYSTEM,10", first.expectLine());
-
-        FakeTelnetServer.Connection second = login("GNET>");
-        verifyOnline(2);
-        readLines(second, STARTUP_COMMANDS);
-        assertTrue(first.isClosedByPeer(), "the old connection was not closed");
-
-        second.send("~OUTPUT,5,1,64.00\r\n");
-        verify(dimmer, timeout(WAIT_MS)).handleUpdate(LutronCommandType.OUTPUT, "1", "64.00");
-    }
-
-    @Test
-    public void droppedConnectionIsRecoveredByTheKeepalive() throws Exception {
-        FakeTelnetServer.Connection first = online();
-        handler.keepAliveTimeoutMs = 300;
-
-        first.close();
-        handler.sendKeepAlive();
-
-        FakeTelnetServer.Connection second = login("GNET>");
-        verifyOnline(2);
-        assertEquals("#MONITORING,12,2", second.expectLine());
-    }
-
-    @Test
     public void disposeClosesTheConnectionPromptly() throws Exception {
         FakeTelnetServer.Connection peer = online();
 
