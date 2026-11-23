@@ -85,6 +85,21 @@ public class LutronDurationTest {
     }
 
     @Test
+    public void decimalConstructorsEnforceTheProtocolRange() {
+        assertEquals(LutronDuration.MAX_SECONDS,
+                new LutronDuration(new BigDecimal(LutronDuration.MAX_SECONDS)).seconds);
+        assertEquals(0, new LutronDuration(BigDecimal.ZERO).seconds);
+
+        assertThrows(IllegalArgumentException.class, () -> new LutronDuration(new BigDecimal("-0.01")));
+        assertThrows(IllegalArgumentException.class, () -> new LutronDuration(new BigDecimal("-5")));
+        assertThrows(IllegalArgumentException.class,
+                () -> new LutronDuration(new BigDecimal(LutronDuration.MAX_SECONDS + 1)));
+        assertThrows(IllegalArgumentException.class, () -> new LutronDuration(-1.0));
+        assertThrows(IllegalArgumentException.class, () -> new LutronDuration(1e9));
+        assertThrows(IllegalArgumentException.class, () -> new LutronDuration(Double.NaN));
+    }
+
+    @Test
     public void toStringIsTheLipRepresentation() {
         assertEquals("1:40", new LutronDuration(100).toString());
     }

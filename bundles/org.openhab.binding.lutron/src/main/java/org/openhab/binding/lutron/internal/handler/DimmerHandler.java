@@ -75,8 +75,14 @@ public class DimmerHandler extends LutronHandler {
             updateStatus(ThingStatusDetail.CONFIGURATION_ERROR, "No integrationId configured");
             return;
         }
-        fadeInTime = new LutronDuration(config.fadeInTime);
-        fadeOutTime = new LutronDuration(config.fadeOutTime);
+        try {
+            fadeInTime = new LutronDuration(config.fadeInTime);
+            fadeOutTime = new LutronDuration(config.fadeOutTime);
+        } catch (IllegalArgumentException e) {
+            updateStatus(ThingStatusDetail.CONFIGURATION_ERROR,
+                    "Fade times must be between 0 and " + LutronDuration.MAX_SECONDS + " seconds");
+            return;
+        }
         logger.debug("Initializing Dimmer handler for integration ID {}", getIntegrationId());
 
         initDeviceState();
