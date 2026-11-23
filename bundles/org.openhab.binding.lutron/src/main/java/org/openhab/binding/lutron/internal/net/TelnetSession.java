@@ -165,7 +165,13 @@ public class TelnetSession implements Closeable {
                     // data. A read that blocks here can never be satisfied, for example when the end-of-stream
                     // notification of a previous connection already consumed the queued data, so only read what is
                     // ready.
-                    while (charBuffer.hasRemaining() && reader.ready()) {
+                    while (reader.ready()) {
+                        if (!charBuffer.hasRemaining()) {
+                            notifyInputAvailable(); // let listeners consume the complete lines first
+                            if (!charBuffer.hasRemaining()) {
+                                makeRoom();
+                            }
+                        }
                         if (reader.read(charBuffer) <= 0) {
                             break;
                         }
@@ -183,6 +189,23 @@ public class TelnetSession implements Closeable {
                 logger.debug("TelnetSession readInput: reader is null - session is closed");
                 throw new IOException("Session is closed");
             }
+        }
+    }
+
+    /**
+     * Frees space in a full buffer. Complete lines nobody consumed are dropped and a partial last line is kept. A
+     * partial line that fills the whole buffer can never be completed into a valid response, so it is dropped as
+     * well; keeping it would leave no room to read the rest of the input, and the session would stall.
+     */
+    private void makeRoom() {
+        charBuffer.flip();
+        String data = charBuffer.toString();
+        charBuffer.clear();
+        int lastLineEnd = data.lastIndexOf('\n');
+        if (lastLineEnd == -1) {
+            logger.debug("TelnetSession discarding {} characters without a line end", data.length());
+        } else {
+            charBuffer.put(data, lastLineEnd + 1, data.length());
         }
     }
 

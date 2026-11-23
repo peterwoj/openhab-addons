@@ -145,6 +145,21 @@ public class TelnetSessionTest {
     }
 
     @Test
+    public void lineLongerThanTheBufferDoesNotStallTheSession() throws Exception {
+        collectLines();
+        session.open("127.0.0.1", server.port());
+        FakeTelnetServer.Connection peer = server.accept();
+
+        peer.send("X".repeat(20_000) + "\r\n~OUTPUT,1,1,10.00\r\n");
+
+        String line;
+        do {
+            line = nextLine();
+        } while (!line.startsWith("~"));
+        assertEquals("~OUTPUT,1,1,10.00", line);
+    }
+
+    @Test
     public void waitForMatchesAPromptThatHasAlreadyArrived() throws Exception {
         session.open("127.0.0.1", server.port());
         FakeTelnetServer.Connection peer = server.accept();
