@@ -160,6 +160,21 @@ public class LutronDeviceDiscoveryServiceTest {
     }
 
     @Test
+    public void exportWithoutLineBreaksIsRead() throws Exception {
+        scan(sample().replace("\r", "").replace("\n", ""));
+
+        awaitResults(SAMPLE_RESULTS);
+    }
+
+    @Test
+    public void longTextBeforeTheDeclarationOnTheSameLineIsSkipped() throws Exception {
+        // Longer than the reader buffer, so the scan cannot rely on the whole line being buffered
+        scan("x".repeat(10_000) + sample());
+
+        awaitResults(SAMPLE_RESULTS);
+    }
+
+    @Test
     public void missingFileFindsNothing() {
         config.discoveryFile = dir.resolve("missing.xml").toString();
         ScanListener scanListener = mock(ScanListener.class);

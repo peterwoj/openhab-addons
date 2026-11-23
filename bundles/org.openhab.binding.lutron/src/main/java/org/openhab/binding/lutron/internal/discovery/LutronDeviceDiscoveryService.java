@@ -31,8 +31,6 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
@@ -83,13 +81,10 @@ import org.slf4j.LoggerFactory;
  */
 @NonNullByDefault
 public class LutronDeviceDiscoveryService extends AbstractDiscoveryService {
-    private static final int DECLARATION_MAX_LEN = 80;
     private static final long HTTP_REQUEST_TIMEOUT = 60; // seconds
     private static final int DISCOVERY_SERVICE_TIMEOUT = 90; // seconds
 
     private static final String XML_DECLARATION_START = "<?xml";
-    private static final Pattern XML_DECLARATION_PATTERN = Pattern.compile(XML_DECLARATION_START,
-            Pattern.LITERAL | Pattern.CASE_INSENSITIVE);
 
     private final Logger logger = LoggerFactory.getLogger(LutronDeviceDiscoveryService.class);
 
@@ -214,27 +209,36 @@ public class LutronDeviceDiscoveryService extends AbstractDiscoveryService {
     /**
      * Flushes any lines or characters before the start of the XML declaration in the supplied BufferedReader.
      *
+     * The scan only ever marks the few characters of a candidate declaration, so a declaration on an arbitrarily
+     * long line, such as a document without line breaks, is still found.
+     *
      * @param xmlReader BufferedReader source of the XML document
      * @throws IOException
      */
     private void flushPrePrologLines(BufferedReader xmlReader) throws IOException {
-        String inLine = null;
-        xmlReader.mark(DECLARATION_MAX_LEN);
-        boolean foundXmlDec = false;
+        final int length = XML_DECLARATION_START.length();
+        final char[] candidate = new char[length];
+        long discarded = 0;
 
-        while (!foundXmlDec && (inLine = xmlReader.readLine()) != null) {
-            Matcher matcher = XML_DECLARATION_PATTERN.matcher(inLine);
-            if (matcher.find()) {
-                foundXmlDec = true;
-                xmlReader.reset();
-                if (matcher.start() > 0) {
-                    logger.trace("Discarding {} characters.", matcher.start());
-                    xmlReader.skip(matcher.start());
-                }
-            } else {
-                logger.trace("Discarding line: {}", inLine);
-                xmlReader.mark(DECLARATION_MAX_LEN);
+        while (true) {
+            xmlReader.mark(length);
+            int count = 0;
+            int c;
+            while (count < length && (c = xmlReader.read()) != -1) {
+                candidate[count++] = (char) c;
             }
+            xmlReader.reset();
+            if (count < length) {
+                return; // no declaration; the XML parser reports the malformed document
+            }
+            if (XML_DECLARATION_START.equalsIgnoreCase(new String(candidate))) {
+                if (discarded > 0) {
+                    logger.trace("Discarded {} characters before the XML declaration.", discarded);
+                }
+                return;
+            }
+            xmlReader.skip(1);
+            discarded++;
         }
     }
 
