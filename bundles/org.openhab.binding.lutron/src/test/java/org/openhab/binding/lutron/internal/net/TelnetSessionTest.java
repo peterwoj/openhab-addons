@@ -198,6 +198,29 @@ public class TelnetSessionTest {
     }
 
     @Test
+    public void closingTheSessionEndsAWaitWithoutTimeout() throws Exception {
+        session.open("127.0.0.1", server.port());
+        server.accept();
+        BlockingQueue<MatchResult> result = new LinkedBlockingQueue<>();
+        Thread waiter = new Thread(() -> {
+            try {
+                result.add(session.waitFor("login:"));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }, "test-waiter");
+        waiter.setDaemon(true);
+        waiter.start();
+        Thread.sleep(300); // let the waiter block
+
+        session.close();
+
+        MatchResult outcome = result.poll(WAIT_SECONDS, TimeUnit.SECONDS);
+        assertNotNull(outcome, "waitFor() kept waiting after the session was closed");
+        assertFalse(outcome.hasMatch());
+    }
+
+    @Test
     public void waitForWithATimeoutGivesUp() throws Exception {
         session.open("127.0.0.1", server.port());
         server.accept().send("something else");
