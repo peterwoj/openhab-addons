@@ -20,6 +20,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
 import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -36,6 +38,7 @@ import org.mockito.ArgumentCaptor;
 import org.openhab.binding.lutron.internal.net.FakeTelnetServer;
 import org.openhab.core.library.types.DateTimeType;
 import org.openhab.core.library.types.DecimalType;
+import org.openhab.core.library.types.OnOffType;
 import org.openhab.core.library.types.PercentType;
 import org.openhab.core.library.types.StringType;
 import org.openhab.core.thing.ThingStatus;
@@ -228,6 +231,84 @@ public class PrgProtocolHandlerTest {
     }
 
     @Test
+    public void zoneEightIntensityIsReported() throws Exception {
+        loggedIn();
+
+        respond("~:zi 1 0 1 2 3 4 5 6 40 1 OK");
+
+        verify(callback, timeout(WAIT_MS)).stateChanged(1, PrgConstants.CHANNEL_ZONEINTENSITY + 8, new PercentType(50));
+    }
+
+    @Test
+    public void zoneEightCanBeSteppedUpAndDown() throws Exception {
+        loggedIn();
+
+        handler.setZoneIntensity(1, 8, 0, true);
+        handler.setZoneIntensity(1, 8, 0, true);
+        handler.setZoneIntensity(1, 8, 0, false);
+
+        assertEquals("szi 1 0 * * * * * * * 2", nextCommand());
+        assertEquals("szi 1 0 * * * * * * * 3", nextCommand());
+        assertEquals("szi 1 0 * * * * * * * 2", nextCommand());
+    }
+
+    @Test
+    public void reportedTimeUsesTheCalendarDate() throws Exception {
+        loggedIn();
+
+        respond("~:rt 7 5 11 23 26 2 1 OK");
+
+        ArgumentCaptor<State> captor = ArgumentCaptor.forClass(State.class);
+        verify(callback, timeout(WAIT_MS)).stateChanged(eq(PrgConstants.CHANNEL_TIMECLOCK), captor.capture());
+        ZonedDateTime time = ((DateTimeType) captor.getValue()).getInstant().atZone(ZoneId.systemDefault());
+        assertEquals(ZonedDateTime.of(2026, 11, 23, 7, 5, 0, 0, ZoneId.systemDefault()), time);
+    }
+
+    @Test
+    public void reportedTwoDigitYearsBeforeFiftyAreThisCentury() throws Exception {
+        loggedIn();
+
+        respond("~:rt 23 59 1 31 49 1 1 OK");
+        respond("~:rt 0 0 12 1 99 1 1 OK");
+
+        ArgumentCaptor<State> captor = ArgumentCaptor.forClass(State.class);
+        verify(callback, timeout(WAIT_MS).times(2)).stateChanged(eq(PrgConstants.CHANNEL_TIMECLOCK), captor.capture());
+        ZonedDateTime first = ((DateTimeType) captor.getAllValues().get(0)).getInstant().atZone(ZoneId.systemDefault());
+        ZonedDateTime second = ((DateTimeType) captor.getAllValues().get(1)).getInstant()
+                .atZone(ZoneId.systemDefault());
+        assertEquals(ZonedDateTime.of(2049, 1, 31, 23, 59, 0, 0, ZoneId.systemDefault()), first);
+        assertEquals(ZonedDateTime.of(1999, 12, 1, 0, 0, 0, 0, ZoneId.systemDefault()), second);
+    }
+
+    @Test
+    public void controlUnitInformationSetsTheLocks() throws Exception {
+        loggedIn();
+
+        // The eighth field is a hex bit set: bit 1 scene sequence, bit 2 zone lock, bit 3 scene lock
+        respond("~:mu 2 1 A B C D E 8 G");
+
+        verify(callback, timeout(WAIT_MS)).stateChanged(2, PrgConstants.CHANNEL_ZONELOCK, OnOffType.OFF);
+        verify(callback).stateChanged(2, PrgConstants.CHANNEL_SCENELOCK, OnOffType.ON);
+        verify(callback).stateChanged(2, PrgConstants.CHANNEL_SCENESEQ, OnOffType.OFF);
+
+        respond("~:mu 3 1 A B C D E 6 G");
+
+        verify(callback, timeout(WAIT_MS)).stateChanged(3, PrgConstants.CHANNEL_ZONELOCK, OnOffType.ON);
+        verify(callback).stateChanged(3, PrgConstants.CHANNEL_SCENELOCK, OnOffType.OFF);
+        verify(callback).stateChanged(3, PrgConstants.CHANNEL_SCENESEQ, OnOffType.ON);
+    }
+
+    @Test
+    public void setTimeSendsTheTimeclockFormat() throws Exception {
+        loggedIn();
+        Calendar monday = new GregorianCalendar(2026, Calendar.NOVEMBER, 23, 7, 5, 30);
+
+        handler.setTime(monday);
+
+        assertEquals("ST 7 05 11 23 26 2", nextCommand());
+    }
+
+    @Test
     public void shadeZoneIntensityUsesTheShadeTable() throws Exception {
         when(callback.isShade(2, 1)).thenReturn(true);
         loggedIn();
@@ -407,6 +488,7 @@ public class PrgProtocolHandlerTest {
         assertThrows(IllegalArgumentException.class, () -> handler.selectScene(0, 1));
         assertThrows(IllegalArgumentException.class, () -> handler.selectScene(9, 1));
         assertThrows(IllegalArgumentException.class, () -> handler.selectScene(1, -1));
+        assertThrows(IllegalArgumentException.class, () -> handler.selectScene(1, 17));
         assertThrows(IllegalArgumentException.class, () -> handler.setZoneLower(1, 0));
         assertThrows(IllegalArgumentException.class, () -> handler.setZoneRaise(1, 9));
         assertThrows(IllegalArgumentException.class, () -> handler.setZoneIntensity(1, 1, -1, 50));
