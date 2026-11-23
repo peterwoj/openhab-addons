@@ -171,9 +171,8 @@ public class PrgProtocolHandlerTest {
         BlockingQueue<Object> outcome = loginInBackground();
         prg.send("Welcome to something else\r\n");
 
-        Object result = outcome(outcome);
-        assertInstanceOf(String.class, result);
-        assertTrue(((String) result).startsWith("Protocol violation"), String.valueOf(result));
+        String result = assertInstanceOf(String.class, outcome(outcome));
+        assertTrue(result.startsWith("Protocol violation"), result);
     }
 
     @Test

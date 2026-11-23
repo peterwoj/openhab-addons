@@ -104,6 +104,7 @@ public class OutputCommandTest {
     }
 
     @Test
+    @SuppressWarnings("PMD.SetDefaultLocale")
     public void ccoPulseTimeAlwaysUsesADecimalPoint() {
         Locale saved = Locale.getDefault();
         try {
