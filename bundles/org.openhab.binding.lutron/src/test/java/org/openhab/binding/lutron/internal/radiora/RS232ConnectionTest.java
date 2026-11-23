@@ -113,6 +113,18 @@ public class RS232ConnectionTest {
     }
 
     @Test
+    public void malformedMessageDoesNotStopLaterMessages() throws Exception {
+        openWithInput("LZC,abc,ON\rLZC\rLZC,4,ON\r");
+
+        assertDoesNotThrow(() -> connection.serialEvent(event(SerialPortEvent.DATA_AVAILABLE)));
+        assertDoesNotThrow(() -> connection.serialEvent(event(SerialPortEvent.DATA_AVAILABLE)));
+        connection.serialEvent(event(SerialPortEvent.DATA_AVAILABLE));
+
+        assertEquals(1, feedback.size());
+        assertEquals(4, assertInstanceOf(LocalZoneChangeFeedback.class, feedback.get(0)).getZoneNumber());
+    }
+
+    @Test
     public void ignoredMessagesAndOtherEventsDeliverNothing() throws Exception {
         openWithInput("!\rHELLO\r");
 

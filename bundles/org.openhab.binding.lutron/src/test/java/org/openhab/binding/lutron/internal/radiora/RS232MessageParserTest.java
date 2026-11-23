@@ -98,6 +98,20 @@ public class RS232MessageParserTest {
     }
 
     @ParameterizedTest
+    @ValueSource(strings = { "LZC", "LZC,4", "LZC,abc,ON", "LZC,,ON", "LZC,4,DIM", "LZC,99999999999,ON", "LMP", "ZMP",
+            "LZC,4,ON,S1,extra,," })
+    public void malformedFeedbackIsIgnored(String message) {
+        assertDoesNotThrow(() -> parser.parse(message));
+    }
+
+    @Test
+    public void malformedFeedbackGivesNoFeedback() {
+        assertNull(parser.parse("LZC,abc,ON"));
+        assertNull(parser.parse("LZC,4,DIM"));
+        assertNull(parser.parse("LMP"));
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = { "!", "", ",,,", "XYZ,1,2", "lzc,1,ON", "OK", "ZMPI" })
     public void unknownOrIgnoredMessagesGiveNoFeedback(String message) {
         assertNull(parser.parse(message));
