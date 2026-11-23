@@ -363,6 +363,41 @@ public class LeapBridgeHandlerTest {
     }
 
     @Test
+    public void componentNumbersBelowOneHaveNoButton() {
+        parser.handleMessage(BUTTON_GROUPS);
+
+        assertEquals(0, handler.getButton(3, 0));
+        assertEquals(0, handler.getButton(3, -1));
+    }
+
+    @Test
+    public void incompleteDefinitionsAndEventsAreTolerated() {
+        RecordingChild pico = register(3);
+
+        assertDoesNotThrow(() -> parser.handleMessage("""
+                {"CommuniqueType":"ReadResponse","Header":{"MessageBodyType":"MultipleButtonGroupDefinition"},\
+                "Body":{"ButtonGroups":[{"href":"/buttongroup/1","Parent":{"href":"/device/9"}},\
+                {"href":"/buttongroup/2","Parent":{"href":"/device/3"},"Buttons":[null,{"href":"/button/101"}]}]}}"""));
+        assertDoesNotThrow(() -> parser.handleMessage("""
+                {"CommuniqueType":"ReadResponse","Header":{"MessageBodyType":"OneButtonStatusEvent"},\
+                "Body":{"ButtonStatus":{"Button":{"href":"/button/101"}}}}"""));
+        assertDoesNotThrow(() -> parser.handleMessage("""
+                {"CommuniqueType":"ReadResponse","Header":{"MessageBodyType":"MultipleZoneExpandedStatus"},\
+                "Body":{"ZoneExpandedStatuses":[{"href":"/zone/1/status","Level":0}]}}"""));
+        assertDoesNotThrow(() -> parser.handleMessage("""
+                {"CommuniqueType":"ReadResponse","Header":{"MessageBodyType":"OneProjectDefinition"},\
+                "Body":{"Project":{"ProductType":"Lutron Smart Bridge Project"}}}"""));
+        assertDoesNotThrow(() -> parser.handleMessage("""
+                {"CommuniqueType":"ReadResponse","Header":{"MessageBodyType":"OneProjectDefinition"},\
+                "Body":{"Project":{"MasterDeviceList":{"Devices":[null]}}}}"""));
+
+        assertEquals(101, handler.getButton(3, 1));
+        assertTrue(pico.updates.isEmpty());
+        parser.handleMessage(buttonEvent(101, "Press"));
+        assertEquals(List.of(List.of("DEVICE", "1", "3")), List.copyOf(pico.updates));
+    }
+
+    @Test
     public void occupancyStatusReachesTheGroupHandler() {
         OGroupHandler group = mock(OGroupHandler.class);
         when(group.getIntegrationId()).thenReturn(5);

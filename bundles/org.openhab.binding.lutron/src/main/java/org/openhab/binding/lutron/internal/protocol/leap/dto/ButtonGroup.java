@@ -61,9 +61,13 @@ public class ButtonGroup extends AbstractMessageBody {
 
     public List<Integer> getButtonList() {
         LinkedList<Integer> buttonNumList = new LinkedList<>();
+        if (buttons == null) {
+            return buttonNumList;
+        }
         for (Href button : buttons) {
-            int buttonNum = hrefNumber(BUTTON_HREF_PATTERN, button.href);
-            buttonNumList.add(buttonNum);
+            if (button != null) {
+                buttonNumList.add(hrefNumber(BUTTON_HREF_PATTERN, button.href));
+            }
         }
         return buttonNumList;
     }

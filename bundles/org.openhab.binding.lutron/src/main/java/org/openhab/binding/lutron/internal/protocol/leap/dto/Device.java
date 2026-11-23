@@ -102,7 +102,7 @@ public class Device extends AbstractMessageBody {
      * Currently devices should only have one zone listed.
      */
     public int getZone() {
-        if (localZones != null && localZones.length > 0) {
+        if (localZones != null && localZones.length > 0 && localZones[0] != null) {
             return hrefNumber(ZONE_HREF_PATTERN, localZones[0].href);
         } else {
             return 0;
@@ -110,7 +110,7 @@ public class Device extends AbstractMessageBody {
     }
 
     public int getArea() {
-        if (associatedArea != null && !associatedArea.href.isEmpty()) {
+        if (associatedArea != null && associatedArea.href != null && !associatedArea.href.isEmpty()) {
             return hrefNumber(AREA_HREF_PATTERN, associatedArea.href);
         } else {
             return 0;

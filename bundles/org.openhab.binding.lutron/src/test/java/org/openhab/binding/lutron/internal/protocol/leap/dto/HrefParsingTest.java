@@ -76,6 +76,22 @@ public class HrefParsingTest {
     }
 
     @Test
+    public void nullHrefsAndEntriesMapToZero() {
+        assertEquals(0, parse("{\"AssociatedArea\":{\"href\":null}}", Device.class).getArea());
+        assertEquals(0, parse("{\"AssociatedArea\":null}", Device.class).getArea());
+        assertEquals(0, parse("{\"LocalZones\":[null]}", Device.class).getZone());
+        OccupancyGroup group = parse("{\"AssociatedAreas\":[{\"Area\":null}]}", OccupancyGroup.class);
+        assertEquals(0, group.associatedAreas[0].getAreaNumber());
+    }
+
+    @Test
+    public void buttonGroupWithoutButtonsHasNone() {
+        assertEquals(List.of(), parse("{\"href\":\"/buttongroup/2\"}", ButtonGroup.class).getButtonList());
+        assertEquals(List.of(4),
+                parse("{\"Buttons\":[null,{\"href\":\"/button/4\"}]}", ButtonGroup.class).getButtonList());
+    }
+
+    @Test
     public void buttonGroupWithoutParent() {
         ButtonGroup group = parse("""
                 {"href":"/buttongroup/2","Parent":null,"Buttons":[{"href":"/button/7"},{"href":"/button/x"}]}""",

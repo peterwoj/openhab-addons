@@ -79,14 +79,18 @@ public class LeapMessageParser {
         logger.trace("Received message: {}", msg);
 
         try {
-            JsonObject message = (JsonObject) JsonParser.parseString(msg);
+            JsonElement root = JsonParser.parseString(msg);
+            if (!root.isJsonObject()) {
+                logger.debug("Ignoring message that is not a JSON object: {}", msg);
+                return;
+            }
+            JsonObject message = root.getAsJsonObject();
 
-            if (!message.has("CommuniqueType")) {
+            String communiqueType = stringMember(message, "CommuniqueType");
+            if (communiqueType == null) {
                 logger.debug("No CommuniqueType found in message: {}", msg);
                 return;
             }
-
-            String communiqueType = message.get("CommuniqueType").getAsString();
             // CommuniqueType type = CommuniqueType.valueOf(communiqueType);
             logger.debug("Received CommuniqueType: {}", communiqueType);
             callback.validMessageReceived(communiqueType);
@@ -128,7 +132,11 @@ public class LeapMessageParser {
         String detailMessage = "";
 
         try {
-            JsonObject header = message.get("Header").getAsJsonObject();
+            JsonObject header = objectMember(message, "Header");
+            if (header == null) {
+                logger.debug("Exception response received without a header");
+                return;
+            }
             Header headerObj = gson.fromJson(header, Header.class);
 
             if (MessageBodyType.ExceptionDetail.toString().equalsIgnoreCase(headerObj.messageBodyType)
@@ -155,7 +163,11 @@ public class LeapMessageParser {
      */
     private void handleReadResponseMessage(JsonObject message) {
         try {
-            JsonObject header = message.get("Header").getAsJsonObject();
+            JsonObject header = objectMember(message, "Header");
+            if (header == null) {
+                logger.debug("No Header found in message");
+                return;
+            }
             Header headerObj = gson.fromJson(header, Header.class);
 
             // if 204/NoContent response received for buttongroup request, create empty button map
@@ -165,11 +177,11 @@ public class LeapMessageParser {
                 return;
             }
 
-            if (!header.has("MessageBodyType")) {
+            String messageBodyType = stringMember(header, "MessageBodyType");
+            if (messageBodyType == null) {
                 logger.trace("No MessageBodyType in header");
                 return;
             }
-            String messageBodyType = header.get("MessageBodyType").getAsString();
             logger.trace("MessageBodyType: {}", messageBodyType);
 
             if (!message.has("Body")) {
@@ -225,6 +237,19 @@ public class LeapMessageParser {
             logger.debug("Error parsing message: {}", e.getMessage());
             return;
         }
+    }
+
+    private static @Nullable String stringMember(JsonObject object, String memberName) {
+        JsonElement element = object.get(memberName);
+        if (element != null && element.isJsonPrimitive() && element.getAsJsonPrimitive().isString()) {
+            return element.getAsString();
+        }
+        return null;
+    }
+
+    private static @Nullable JsonObject objectMember(JsonObject object, String memberName) {
+        JsonElement element = object.get(memberName);
+        return element != null && element.isJsonObject() ? element.getAsJsonObject() : null;
     }
 
     private @Nullable <T extends AbstractMessageBody> T parseBodySingle(JsonObject messageBody, String memberName,
