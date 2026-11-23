@@ -179,6 +179,25 @@ public class TelnetSessionTest {
     }
 
     @Test
+    public void reopenedSessionStillSeesThePrompt() throws Exception {
+        collectLines();
+        // The stall depends on thread timing, so reconnect often enough to make it likely
+        for (int i = 0; i < 200; i++) {
+            session.open("127.0.0.1", server.port());
+            FakeTelnetServer.Connection peer = server.accept();
+            peer.send("Welcome\r\nlogin: ");
+
+            // Bounded from outside, because a stalled session can block waitFor() before its own timeout applies
+            MatchResult result = assertTimeoutPreemptively(Duration.ofSeconds(WAIT_SECONDS),
+                    () -> session.waitFor("login:", TimeUnit.SECONDS.toMillis(5)));
+
+            assertTrue(result.hasMatch(), "the login prompt was not seen after reopening " + i + " times");
+            session.close();
+            peer.close();
+        }
+    }
+
+    @Test
     public void waitForWithATimeoutGivesUp() throws Exception {
         session.open("127.0.0.1", server.port());
         server.accept().send("something else");
