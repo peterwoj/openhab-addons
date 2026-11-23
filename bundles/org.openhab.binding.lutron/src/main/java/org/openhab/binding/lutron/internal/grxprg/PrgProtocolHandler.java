@@ -296,7 +296,7 @@ class PrgProtocolHandler {
         }
 
         if (RSP_CONNECTION_ESTABLISHED.equals(response)) {
-            postLogin();
+            postLogin(callback);
             return null;
         } else {
             return "login failed";
@@ -306,12 +306,17 @@ class PrgProtocolHandler {
     /**
      * Post successful login stuff - mark us online and refresh from the switch
      *
+     * @param loginCallback the callback used during the login, which may still hold unprocessed responses
      * @throws IOException
      */
-    private void postLogin() throws IOException {
+    private void postLogin(NoDispatchingCallback loginCallback) throws IOException {
         logger.info("PRG interface now connected");
-        session.setCallback(new NormalResponseCallback());
+        final NormalResponseCallback normalCallback = new NormalResponseCallback();
+        session.setCallback(normalCallback);
         phCallback.statusChanged(ThingStatus.ONLINE, ThingStatusDetail.NONE, null);
+
+        // A response that arrived just before the callback change went to the login callback; process it now
+        loginCallback.forwardRemaining(normalCallback);
     }
 
     /**
@@ -1199,6 +1204,20 @@ class PrgProtocolHandler {
                 throw new Exception("Didn't receive response in time");
             } else {
                 return lastResponse.toString();
+            }
+        }
+
+        /**
+         * Hands any responses that were received but not consumed by the login to the given callback.
+         */
+        void forwardRemaining(SocketSessionCallback next) {
+            Object remaining;
+            while ((remaining = responses.poll()) != null) {
+                if (remaining instanceof String str) {
+                    next.responseReceived(str);
+                } else if (remaining instanceof Exception exception) {
+                    next.responseException(exception);
+                }
             }
         }
 

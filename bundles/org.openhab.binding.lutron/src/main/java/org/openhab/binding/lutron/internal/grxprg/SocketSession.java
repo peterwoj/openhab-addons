@@ -360,17 +360,22 @@ public class SocketSession {
 
                     final Object response = responsesQueue.poll(1, TimeUnit.SECONDS);
 
-                    if (response != null) {
+                    // The callback may have been replaced while waiting, for example when a login completes, so
+                    // deliver to the current one rather than to the one that was set when the wait began
+                    final SocketSessionCallback current = callback.get();
+                    if (response != null && current == null) {
+                        logger.debug("Dropping response received after disconnect: {}", response);
+                    } else if (response != null) {
                         if (response instanceof String str) {
                             try {
                                 logger.debug("Dispatching response: {}", response);
-                                ssCallback.responseReceived(str);
+                                current.responseReceived(str);
                             } catch (Exception e) {
                                 logger.warn("Exception occurred processing the response '{}': ", response, e);
                             }
                         } else if (response instanceof Exception exception) {
                             logger.debug("Dispatching exception: {}", response);
-                            ssCallback.responseException(exception);
+                            current.responseException(exception);
                         } else {
                             logger.error("Unknown response class: {}", response);
                         }
