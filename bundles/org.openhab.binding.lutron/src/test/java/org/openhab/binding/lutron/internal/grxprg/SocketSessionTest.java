@@ -140,6 +140,22 @@ public class SocketSessionTest {
     }
 
     @Test
+    public void responseAfterACallbackChangeGoesToTheNewCallback() throws Exception {
+        RecordingCallback next = new RecordingCallback();
+        session.setCallback(callback);
+        session.connect();
+        FakeTelnetServer.Connection prg = server.accept();
+        prg.send("~1 OK\r\n");
+        assertEquals("~1 OK", callback.next());
+
+        session.setCallback(next);
+        prg.send("~2 OK\r\n");
+
+        assertEquals("~2 OK", next.next());
+        assertNull(callback.responses.poll(500, TimeUnit.MILLISECONDS));
+    }
+
+    @Test
     public void failingCallbackDoesNotStopDispatch() throws Exception {
         session.setCallback(callback);
         session.connect();

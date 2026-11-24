@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
@@ -116,30 +115,7 @@ public class PrgProtocolHandlerTest {
         assertEquals("lutron", nextCommand());
         prg.send("connection established\r\n");
         assertEquals("OK", outcome(outcome));
-        awaitNormalDispatch();
         clearInvocations(callback);
-    }
-
-    /**
-     * Waits until responses reach the post-login callback. SocketSession can hand the first response after a
-     * callback change to the previous callback, so a marker response is repeated until one is dispatched. The marker
-     * uses the super sequence channels, which no test asserts the absence of.
-     */
-    private void awaitNormalDispatch() throws Exception {
-        AtomicBoolean dispatched = new AtomicBoolean();
-        doAnswer(invocation -> {
-            dispatched.set(true);
-            return null;
-        }).when(callback).stateChanged(eq(PrgConstants.CHANNEL_SUPERSEQUENCESTATUS), eq(new StringType("S")));
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(WAIT_MS);
-        while (!dispatched.get() && System.nanoTime() < deadline) {
-            respond("~:s? S 0 0 0 1 OK");
-            long wait = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1_500);
-            while (!dispatched.get() && System.nanoTime() < wait) {
-                Thread.sleep(20);
-            }
-        }
-        assertTrue(dispatched.get(), "responses never reached the post-login callback");
     }
 
     private void respond(String response) throws IOException {
@@ -187,6 +163,27 @@ public class PrgProtocolHandlerTest {
 
         assertEquals("login failed", outcome(outcome));
         verify(callback, never()).statusChanged(eq(ThingStatus.ONLINE), any(), any());
+    }
+
+    @Test
+    public void firstResponseAfterLoginIsProcessed() throws Exception {
+        BlockingQueue<Object> outcome = loginInBackground();
+        prg.send("login: ");
+        assertEquals("lutron", nextCommand());
+        // The interface may answer straight away, before the binding is done switching to normal processing
+        prg.send("connection established\r\n~:rs 2 1 OK\r\n");
+        assertEquals("OK", outcome(outcome));
+
+        verify(callback, timeout(WAIT_MS)).stateChanged(PrgConstants.CHANNEL_SCHEDULE, new DecimalType(2));
+    }
+
+    @Test
+    public void responseRightAfterLoginIsProcessed() throws Exception {
+        loggedIn();
+
+        respond("~:rs 1 1 OK");
+
+        verify(callback, timeout(WAIT_MS)).stateChanged(PrgConstants.CHANNEL_SCHEDULE, new DecimalType(1));
     }
 
     @Test
