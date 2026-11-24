@@ -46,7 +46,7 @@ public class OccupancyGroup extends AbstractMessageBody {
         public Href area;
 
         public int getAreaNumber() {
-            return hrefNumber(Area.AREA_HREF_PATTERN, area.href);
+            return area == null ? 0 : hrefNumber(Area.AREA_HREF_PATTERN, area.href);
         }
     }
 

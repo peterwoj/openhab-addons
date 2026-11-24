@@ -312,6 +312,30 @@ public class LeapMessageParserTest {
         verify(callbacks, never()).handleZoneUpdate(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = { "42", "\"text\"", "[1,2]", "[]", "null", "true", "{\"CommuniqueType\":{}}",
+            "{\"CommuniqueType\":[\"ReadResponse\"]}", "{\"CommuniqueType\":null}", "{\"CommuniqueType\":7}",
+            "{\"CommuniqueType\":\"ReadResponse\"}", "{\"CommuniqueType\":\"UpdateResponse\",\"Header\":null}",
+            "{\"CommuniqueType\":\"ExceptionResponse\"}", "{\"CommuniqueType\":\"ExceptionResponse\",\"Header\":[]}",
+            "{\"CommuniqueType\":\"ReadResponse\",\"Header\":{\"MessageBodyType\":{}},\"Body\":{}}",
+            "{\"CommuniqueType\":\"ReadResponse\",\"Header\":{\"MessageBodyType\":null},\"Body\":{}}",
+            "{\"CommuniqueType\":\"ReadResponse\",\"Header\":{\"MessageBodyType\":\"OneZoneStatus\"},\"Body\":null}" })
+    public void structurallyWrongMessagesAreIgnored(String line) {
+        assertDoesNotThrow(() -> parser.handleMessage(line));
+        verify(callbacks, never()).handleZoneUpdate(any());
+        verify(callbacks, never()).handleEmptyButtonGroupDefinition();
+    }
+
+    @Test
+    public void parserKeepsWorkingAfterAStructurallyWrongMessage() {
+        parser.handleMessage("[\"not\", \"an\", \"object\"]");
+        parser.handleMessage("{\"CommuniqueType\":\"ReadResponse\"}");
+        parser.handleMessage(read("OneZoneStatus", """
+                {"ZoneStatus":{"Level":12,"Zone":{"href":"/zone/2"}}}"""));
+
+        verify(callbacks).handleZoneUpdate(any());
+    }
+
     @Test
     public void messageWithoutCommuniqueTypeIsIgnored() {
         parser.handleMessage("""

@@ -669,6 +669,9 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
         synchronized (zoneIdToNameLock) {
             zoneIdToName.clear();
             for (ZoneExpanded zone : expandedZones) {
+                if (zone.zone == null) {
+                    continue;
+                }
                 int zoneId = zone.zone.getZone();
                 if (zoneId > 0) {
                     zoneIdToName.put(zoneId, zone.zone.name);
@@ -708,7 +711,9 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
     public void handleProjectDefinition(Project project) {
         isRadioRA3 = LUTRON_RADIORA_3_PROJECT.equals(project.productType);
 
-        if (project.masterDeviceList.devices.length > 0 && project.masterDeviceList.devices[0].href != null) {
+        Project.MasterDeviceList masterDeviceList = project.masterDeviceList;
+        if (masterDeviceList != null && masterDeviceList.devices != null && masterDeviceList.devices.length > 0
+                && masterDeviceList.devices[0] != null && masterDeviceList.devices[0].href != null) {
             sendCommand(new LeapCommand(Request.getDevices(true)));
         }
 
@@ -730,6 +735,10 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
     @Override
     public void handleButtonStatus(ButtonStatus buttonStatus) {
         int buttonId = buttonStatus.getButton();
+        if (buttonStatus.buttonEvent == null) {
+            logger.debug("Ignoring status for button {} without a button event", buttonId);
+            return;
+        }
         logger.trace("Button: {} eventType: {}", buttonId, buttonStatus.buttonEvent.eventType);
         Entry<Integer, Integer> entry = buttonToDeviceAndIndex(buttonId);
 
@@ -825,7 +834,7 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
         synchronized (deviceButtonMapLock) {
             if (deviceButtonMap != null) {
                 List<Integer> buttonList = deviceButtonMap.get(integrationID);
-                if (buttonList != null && component <= buttonList.size()) {
+                if (buttonList != null && component > 0 && component <= buttonList.size()) {
                     return buttonList.get(component - 1);
                 } else {
                     logger.debug("Could not find button component {} for id {}", component, integrationID);
