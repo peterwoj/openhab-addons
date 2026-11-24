@@ -307,6 +307,32 @@ public class IPBridgeHandlerTest {
     }
 
     @Test
+    public void burstOfUpdatesLargerThanTheBufferIsFullyDelivered() throws Exception {
+        LutronHandler dimmer = addChild(5);
+        FakeTelnetServer.Connection peer = online();
+        StringBuilder burst = new StringBuilder();
+        for (int i = 0; i < 1_000; i++) {
+            burst.append("~OUTPUT,5,1,").append(i % 100).append(".00\r\n");
+        }
+        burst.append("~OUTPUT,5,1,100.00\r\n");
+
+        peer.send(burst.toString());
+
+        verify(dimmer, timeout(WAIT_MS)).handleUpdate(LutronCommandType.OUTPUT, "1", "100.00");
+        verify(dimmer, times(1_001)).handleUpdate(eq(LutronCommandType.OUTPUT), any(String[].class));
+    }
+
+    @Test
+    public void overlongGarbageLineDoesNotStallTheBridge() throws Exception {
+        LutronHandler dimmer = addChild(5);
+        FakeTelnetServer.Connection peer = online();
+
+        peer.send("#".repeat(20_000) + "\r\n~OUTPUT,5,1,33.00\r\n");
+
+        verify(dimmer, timeout(WAIT_MS)).handleUpdate(LutronCommandType.OUTPUT, "1", "33.00");
+    }
+
+    @Test
     public void childThatRejectsAnUpdateDoesNotStopDispatch() throws Exception {
         LutronHandler dimmer = addChild(5);
         doThrow(new NumberFormatException("bad")).doNothing().when(dimmer).handleUpdate(any(), any(String[].class));
