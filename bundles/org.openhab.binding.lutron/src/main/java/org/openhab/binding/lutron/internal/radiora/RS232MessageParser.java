@@ -35,21 +35,26 @@ public class RS232MessageParser {
     public @Nullable RadioRAFeedback parse(String msg) {
         String prefix = parsePrefix(msg);
 
-        switch (prefix) {
-            case "LMP":
-                return new LEDMapFeedback(msg);
-            case "LZC":
-                return new LocalZoneChangeFeedback(msg);
-            case "ZMP":
-                return new ZoneMapFeedback(msg);
-            case "!":
-                // No action to take when this message is received but handle
-                // it to prevent the the default log statement from occurring.
-                break;
+        try {
+            switch (prefix) {
+                case "LMP":
+                    return new LEDMapFeedback(msg);
+                case "LZC":
+                    return new LocalZoneChangeFeedback(msg);
+                case "ZMP":
+                    return new ZoneMapFeedback(msg);
+                case "!":
+                    // No action to take when this message is received but handle
+                    // it to prevent the the default log statement from occurring.
+                    break;
 
-            default:
-                logger.debug("Unhandled msg received from RS232 [{}]", msg);
-                break;
+                default:
+                    logger.debug("Unhandled msg received from RS232 [{}]", msg);
+                    break;
+            }
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            // Missing fields, a non-numeric zone or an unknown state, for example from line noise
+            logger.debug("Ignoring malformed msg received from RS232 [{}]: {}", msg, e.getMessage());
         }
 
         return null;
