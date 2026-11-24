@@ -116,7 +116,7 @@ class PrgProtocolHandler {
     private static final Map<String, Integer> SHADE_INTENSITY_MAP = new HashMap<>();
 
     /**
-     * Cache of current zone intensities
+     * Cache of current zone intensities, indexed by zone number minus one
      */
     private final int[] zoneIntensities = new int[8];
 
@@ -359,9 +359,9 @@ class PrgProtocolHandler {
      * @throws IllegalArgumentException if scene is < 0 or > 16
      */
     private char convertScene(int scene) {
-        if (scene < 0 || scene > VALID_SCENES.length()) {
+        if (scene < 0 || scene >= VALID_SCENES.length()) {
             throw new IllegalArgumentException(
-                    "Invalid scene (must be between 0 and " + VALID_SCENES.length() + "): " + scene);
+                    "Invalid scene (must be between 0 and " + (VALID_SCENES.length() - 1) + "): " + scene);
         }
         return VALID_SCENES.charAt(scene);
     }
@@ -456,7 +456,7 @@ class PrgProtocolHandler {
                 logger.warn("Unknown zone intensity ({})", intensity);
                 return Integer.parseInt(intensity, 16);
             }
-            zoneIntensities[zone] = intNbr;
+            zoneIntensities[zone - 1] = intNbr;
             return intNbr;
         }
     }
@@ -574,7 +574,7 @@ class PrgProtocolHandler {
         validateControlUnit(controlUnit);
         validateZone(zone);
 
-        int newInt = zoneIntensities[zone] += (increase ? 1 : -1);
+        int newInt = zoneIntensities[zone - 1] += (increase ? 1 : -1);
         if (newInt < 0) {
             newInt = 0;
         }
@@ -632,7 +632,7 @@ class PrgProtocolHandler {
         if (calendar == null) {
             throw new IllegalArgumentException("calendar cannot be null");
         }
-        final String cmd = String.format("%1 %2$tk %2$tM %2$tm %2$te %2ty %3", CMD_SETTIME, calendar,
+        final String cmd = String.format("%1$s %2$tk %2$tM %2$tm %2$te %2$ty %3$d", CMD_SETTIME, calendar,
                 calendar.get(Calendar.DAY_OF_WEEK));
         sendCommand(cmd);
     }
@@ -877,11 +877,14 @@ class PrgProtocolHandler {
                 final Calendar c = Calendar.getInstance();
                 c.set(Calendar.HOUR_OF_DAY, Integer.parseInt(m.group(1)));
                 c.set(Calendar.MINUTE, Integer.parseInt(m.group(2)));
-                c.set(Calendar.MONDAY, Integer.parseInt(m.group(3)));
+                c.set(Calendar.SECOND, 0);
+                c.set(Calendar.MILLISECOND, 0);
+                // The interface reports a 1-based month and a two-digit year, as setTime() sends them
+                c.set(Calendar.MONTH, Integer.parseInt(m.group(3)) - 1);
                 c.set(Calendar.DAY_OF_MONTH, Integer.parseInt(m.group(4)));
 
                 final int yr = Integer.parseInt(m.group(5));
-                c.set(Calendar.YEAR, yr + (yr < 50 ? 1900 : 2000));
+                c.set(Calendar.YEAR, yr + (yr < 50 ? 2000 : 1900));
 
                 phCallback.stateChanged(PrgConstants.CHANNEL_TIMECLOCK, new DateTimeType(c.toInstant()));
             } catch (NumberFormatException e) {
@@ -1026,7 +1029,7 @@ class PrgProtocolHandler {
                 // final boolean seqType = (q4bits.length() > 0 ? q4bits.charAt(0) : '0') == '1';
                 final boolean seqMode = (q4bits.length() > 1 ? q4bits.charAt(1) : '0') == '1';
                 final boolean zoneLock = (q4bits.length() > 2 ? q4bits.charAt(2) : '0') == '1';
-                final boolean sceneLock = (q4bits.length() > 3 ? q4bits.charAt(4) : '0') == '1';
+                final boolean sceneLock = (q4bits.length() > 3 ? q4bits.charAt(3) : '0') == '1';
 
                 phCallback.stateChanged(controlUnit, PrgConstants.CHANNEL_SCENESEQ, OnOffType.from(seqMode));
                 phCallback.stateChanged(controlUnit, PrgConstants.CHANNEL_SCENELOCK, OnOffType.from(sceneLock));
