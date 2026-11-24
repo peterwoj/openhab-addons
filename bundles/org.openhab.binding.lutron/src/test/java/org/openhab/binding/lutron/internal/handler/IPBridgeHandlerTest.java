@@ -87,6 +87,10 @@ public class IPBridgeHandlerTest {
     }
 
     private void start(Map<String, Object> extraConfig) {
+        start(extraConfig, TimeUnit.SECONDS.toMillis(30));
+    }
+
+    private void start(Map<String, Object> extraConfig, long loginTimeoutMs) {
         Map<String, Object> config = new HashMap<>();
         config.put("ipAddress", "127.0.0.1");
         config.put("user", "lutron");
@@ -96,6 +100,7 @@ public class IPBridgeHandlerTest {
         handler = new IPBridgeHandler(bridge);
         handler.setCallback(callback);
         handler.telnetPort = server.port();
+        handler.loginTimeoutMs = loginTimeoutMs;
         handler.initialize();
     }
 
@@ -467,6 +472,38 @@ public class IPBridgeHandlerTest {
 
         current.send("~OUTPUT,5,1,9.00\r\n");
         verify(dimmer, timeout(WAIT_MS)).handleUpdate(LutronCommandType.OUTPUT, "1", "9.00");
+    }
+
+    @Test
+    public void bridgeThatNeverPromptsIsACommunicationError() throws Exception {
+        start(Map.of(), 500);
+        server.accept();
+
+        verifyStatus(ThingStatusDetail.COMMUNICATION_ERROR);
+    }
+
+    @Test
+    public void bridgeThatStopsAfterTheUserNameIsACommunicationError() throws Exception {
+        start(Map.of(), 500);
+        FakeTelnetServer.Connection peer = server.accept();
+        peer.send("login: ");
+        assertEquals("lutron", peer.expectLine());
+
+        verifyStatus(ThingStatusDetail.COMMUNICATION_ERROR);
+        verify(callback, never()).statusUpdated(any(), argThat(info -> info.getStatus() == ThingStatus.ONLINE));
+    }
+
+    @Test
+    public void disposeDuringLoginReturnsPromptlyAndStaysQuiet() throws Exception {
+        start(Map.of());
+        server.accept(); // connected, but the bridge never prompts
+        Thread.sleep(300); // let the login start waiting for the prompt
+        clearInvocations(callback);
+
+        assertTimeoutPreemptively(Duration.ofSeconds(5), handler::dispose);
+
+        verify(callback, after(1_000).never()).statusUpdated(any(),
+                argThat(info -> info.getStatusDetail() == ThingStatusDetail.COMMUNICATION_ERROR));
     }
 
     @Test

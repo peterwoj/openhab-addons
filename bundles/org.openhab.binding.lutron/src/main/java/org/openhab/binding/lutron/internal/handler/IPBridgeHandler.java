@@ -73,6 +73,7 @@ public class IPBridgeHandler extends LutronBridgeHandler {
     private static final int DEFAULT_HEARTBEAT_MINUTES = 5;
     private static final long KEEPALIVE_TIMEOUT_SECONDS = 30;
     private static final int DEFAULT_TELNET_PORT = 23;
+    private static final long LOGIN_TIMEOUT_SECONDS = 30;
 
     private final Logger logger = LoggerFactory.getLogger(IPBridgeHandler.class);
 
@@ -97,6 +98,9 @@ public class IPBridgeHandler extends LutronBridgeHandler {
     // Package-private so that tests can run against a fake bridge on the loopback interface
     volatile int telnetPort = DEFAULT_TELNET_PORT;
     volatile long keepAliveTimeoutMs = TimeUnit.SECONDS.toMillis(KEEPALIVE_TIMEOUT_SECONDS);
+    volatile long loginTimeoutMs = TimeUnit.SECONDS.toMillis(LOGIN_TIMEOUT_SECONDS);
+
+    private volatile boolean disposed;
 
     public void setDiscoveryService(LutronDeviceDiscoveryService discoveryService) {
         this.discoveryService = discoveryService;
@@ -137,6 +141,7 @@ public class IPBridgeHandler extends LutronBridgeHandler {
 
     @Override
     public void initialize() {
+        disposed = false;
         this.config = getConfigAs(IPBridgeConfig.class);
 
         if (validConfiguration(this.config)) {
@@ -191,6 +196,10 @@ public class IPBridgeHandler extends LutronBridgeHandler {
 
             return;
         } catch (IOException e) {
+            if (disposed) {
+                logger.debug("Login abandoned because the handler was disposed");
+                return;
+            }
             updateStatus(ThingStatusDetail.COMMUNICATION_ERROR, e.getMessage());
             disconnect();
             scheduleConnectRetry(reconnectInterval); // Possibly a temporary problem. Try again later.
@@ -296,15 +305,15 @@ public class IPBridgeHandler extends LutronBridgeHandler {
 
     private boolean login(IPBridgeConfig config) throws IOException, InterruptedException, LutronSafemodeException {
         this.session.open(config.ipAddress, telnetPort);
-        this.session.waitFor("login:");
+        waitForPrompt("login:");
 
         // Sometimes the Lutron Smart Bridge Pro will request login more than once.
         for (int attempt = 0; attempt < MAX_LOGIN_ATTEMPTS; attempt++) {
             this.session.writeLine(config.user != null ? config.user : DEFAULT_USER);
-            this.session.waitFor("password:");
+            waitForPrompt("password:");
             this.session.writeLine(config.password != null ? config.password : DEFAULT_PASSWORD);
 
-            MatchResult matchResult = this.session.waitFor(LOGIN_MATCH_REGEX);
+            MatchResult matchResult = waitForPrompt(LOGIN_MATCH_REGEX);
 
             if (PROMPT_GNET.equals(matchResult.group()) || PROMPT_QNET.equals(matchResult.group())) {
                 return true;
@@ -319,6 +328,18 @@ public class IPBridgeHandler extends LutronBridgeHandler {
             }
         }
         return false;
+    }
+
+    /**
+     * Waits for a prompt during login. A bridge that accepts the connection but never prompts must not hold the
+     * connect task, and with it the handler, indefinitely.
+     */
+    private MatchResult waitForPrompt(String prompt) throws IOException, InterruptedException {
+        MatchResult result = this.session.waitFor(prompt, loginTimeoutMs);
+        if (!result.hasMatch()) {
+            throw new IOException("no " + prompt + " prompt from bridge");
+        }
+        return result;
     }
 
     @Override
@@ -502,6 +523,13 @@ public class IPBridgeHandler extends LutronBridgeHandler {
 
     @Override
     public void dispose() {
+        disposed = true;
+        // A login in progress holds the handler lock that disconnect() needs. Closing the session first ends it.
+        try {
+            this.session.close();
+        } catch (IOException e) {
+            logger.debug("Error closing session: {}", e.getMessage());
+        }
         disconnect();
     }
 }

@@ -145,6 +145,7 @@ public class TelnetSession implements Closeable {
             } finally {
                 reader = null;
                 outstream = null;
+                charBuffer.notifyAll(); // let waitFor() see that the session is closed
             }
         }
     }
@@ -212,8 +213,8 @@ public class TelnetSession implements Closeable {
             while (!matcher.find()) {
                 long elapsed = timeout > 0 ? (System.currentTimeMillis() - startTime) : 0;
 
-                if (timeout > 0 && elapsed >= timeout) {
-                    break;
+                if ((timeout > 0 && elapsed >= timeout) || reader == null) {
+                    break; // timed out or the session was closed: the returned result has no match
                 }
 
                 this.charBuffer.clear();
