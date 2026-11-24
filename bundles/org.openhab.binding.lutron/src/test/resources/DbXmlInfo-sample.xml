@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Project>
+  <ProjectName ProjectName="Sample Home" UUID="1" />
+  <Dealer AccountNumber="0" Name="" Email="" Phone="" />
+  <Copyright Message="Test data" />
+  <AppVer>12.5.0.8</AppVer>
+  <XMLVer>3.0</XMLVer>
+  <Areas>
+    <Area Name="Home" UUID="2" IntegrationID="0" OccupancyGroupAssignedToID="0" SortOrder="0">
+      <DeviceGroups>
+        <Device Name="Main Repeater" UUID="5" SerialNumber="123" IntegrationID="1" DeviceType="MAIN_REPEATER" GangPosition="0" SortOrder="0">
+          <Components>
+            <Component ComponentNumber="1" ComponentType="BUTTON">
+              <Button Name="Button 1" UUID="6" ProgrammingModelID="7" />
+            </Component>
+          </Components>
+        </Device>
+      </DeviceGroups>
+      <Scenes />
+      <ShadeGroups />
+      <Outputs />
+      <Areas>
+        <Area Name="Kitchen" UUID="10" IntegrationID="10" OccupancyGroupAssignedToID="11" SortOrder="0">
+          <DeviceGroups>
+            <DeviceGroup Name="Entry" SortOrder="0">
+              <Devices>
+                <Device Name="Keypad" UUID="21" IntegrationID="20" DeviceType="SEETOUCH_KEYPAD" GangPosition="0" SortOrder="0">
+                  <Components>
+                    <Component ComponentNumber="1" ComponentType="BUTTON"><Button Name="Bright" /></Component>
+                    <Component ComponentNumber="2" ComponentType="BUTTON"><Button Name="Dim" /></Component>
+                    <Component ComponentNumber="3" ComponentType="BUTTON"><Button Name="Dinner" /></Component>
+                    <Component ComponentNumber="4" ComponentType="BUTTON"><Button Name="Night" /></Component>
+                    <Component ComponentNumber="6" ComponentType="BUTTON"><Button Name="Off" /></Component>
+                    <Component ComponentNumber="18" ComponentType="BUTTON"><Button Name="Lower" /></Component>
+                    <Component ComponentNumber="19" ComponentType="BUTTON"><Button Name="Raise" /></Component>
+                    <Component ComponentNumber="81" ComponentType="LED"><LED UUID="90" /></Component>
+                    <Component ComponentNumber="82" ComponentType="LED"><LED UUID="91" /></Component>
+                  </Components>
+                </Device>
+                <Device Name="Gadget" UUID="22" IntegrationID="22" DeviceType="FLUX_CAPACITOR" />
+              </Devices>
+            </DeviceGroup>
+            <Device Name="Ceiling Sensor" UUID="23" IntegrationID="21" DeviceType="MOTION_SENSOR" />
+          </DeviceGroups>
+          <Outputs>
+            <Output Name="Pendants" UUID="31" IntegrationID="30" OutputType="INC" Wattage="0" />
+            <Output Name="Pantry" UUID="32" IntegrationID="31" OutputType="NON_DIM" Wattage="0" />
+            <Output Name="Ceiling Fan" UUID="33" IntegrationID="32" OutputType="CEILING_FAN_TYPE" />
+            <Output Name="Gate" UUID="34" IntegrationID="33" OutputType="CCO_PULSED" />
+            <Output Name="Pump" UUID="35" IntegrationID="34" OutputType="CCO_MAINTAINED" />
+            <Output Name="Window" UUID="36" IntegrationID="35" OutputType="SYSTEM_SHADE" />
+            <Output Name="Blind" UUID="37" IntegrationID="36" OutputType="VENETIAN_BLIND" />
+            <Output Name="Mystery" UUID="38" IntegrationID="37" OutputType="PLASMA" />
+            <Output Name="Unnumbered" UUID="39" OutputType="INC" />
+          </Outputs>
+        </Area>
+      </Areas>
+    </Area>
+  </Areas>
+  <Timeclocks>
+    <Timeclock Name="Schedule" UUID="40" IntegrationID="40" />
+  </Timeclocks>
+  <GreenModes>
+    <GreenMode Name="Eco" UUID="41" IntegrationID="41" />
+  </GreenModes>
+</Project>

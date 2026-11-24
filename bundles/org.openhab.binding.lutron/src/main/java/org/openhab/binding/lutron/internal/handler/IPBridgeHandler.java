@@ -72,6 +72,7 @@ public class IPBridgeHandler extends LutronBridgeHandler {
     private static final int DEFAULT_RECONNECT_MINUTES = 5;
     private static final int DEFAULT_HEARTBEAT_MINUTES = 5;
     private static final long KEEPALIVE_TIMEOUT_SECONDS = 30;
+    private static final int DEFAULT_TELNET_PORT = 23;
 
     private final Logger logger = LoggerFactory.getLogger(IPBridgeHandler.class);
 
@@ -92,6 +93,10 @@ public class IPBridgeHandler extends LutronBridgeHandler {
     private LutronDeviceDiscoveryService discoveryService;
 
     private final AtomicBoolean requireSysvarMonitoring = new AtomicBoolean(false);
+
+    // Package-private so that tests can run against a fake bridge on the loopback interface
+    volatile int telnetPort = DEFAULT_TELNET_PORT;
+    volatile long keepAliveTimeoutMs = TimeUnit.SECONDS.toMillis(KEEPALIVE_TIMEOUT_SECONDS);
 
     public void setDiscoveryService(LutronDeviceDiscoveryService discoveryService) {
         this.discoveryService = discoveryService;
@@ -290,7 +295,7 @@ public class IPBridgeHandler extends LutronBridgeHandler {
     }
 
     private boolean login(IPBridgeConfig config) throws IOException, InterruptedException, LutronSafemodeException {
-        this.session.open(config.ipAddress);
+        this.session.open(config.ipAddress, telnetPort);
         this.session.waitFor("login:");
 
         // Sometimes the Lutron Smart Bridge Pro will request login more than once.
@@ -416,11 +421,11 @@ public class IPBridgeHandler extends LutronBridgeHandler {
         }
     }
 
-    private void sendKeepAlive() {
+    void sendKeepAlive() {
         logger.debug("Scheduling keepalive reconnect job");
 
         // Reconnect if no response is received within 30 seconds.
-        keepAliveReconnect = scheduler.schedule(this::reconnect, KEEPALIVE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        keepAliveReconnect = scheduler.schedule(this::reconnect, keepAliveTimeoutMs, TimeUnit.MILLISECONDS);
 
         logger.trace("Sending keepalive query");
         sendCommand(new LIPCommand(TargetType.BRIDGE, LutronOperation.QUERY, LutronCommandType.SYSTEM, null,
