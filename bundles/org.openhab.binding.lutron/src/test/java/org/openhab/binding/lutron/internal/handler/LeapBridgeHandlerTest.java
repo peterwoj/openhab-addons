@@ -20,9 +20,11 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyStore;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -537,14 +539,53 @@ public class LeapBridgeHandlerTest {
         verify(callback, never()).statusUpdated(any(), argThat(info -> "Connecting".equals(info.getDescription())));
     }
 
-    @Test
-    public void unreachableBridgeIsACommunicationErrorAndIsRetried(@TempDir Path dir) throws Exception {
+    private static Path emptyKeystore(Path dir) throws Exception {
         Path keystore = dir.resolve("empty.p12");
         KeyStore empty = KeyStore.getInstance("PKCS12");
         empty.load(null, null);
         try (OutputStream out = Files.newOutputStream(keystore)) {
             empty.store(out, "secret".toCharArray());
         }
+        return keystore;
+    }
+
+    private void initializeAgainst(ServerSocket peer, Path keystore) {
+        initializeWith(Map.of("ipAddress", "127.0.0.1", "port", peer.getLocalPort(), "keystore", keystore.toString(),
+                "keystorePassword", "secret"));
+    }
+
+    @Test
+    public void peerThatNeverStartsTlsIsACommunicationErrorAndIsRetried(@TempDir Path dir) throws Exception {
+        try (ServerSocket silent = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            handler.handshakeTimeoutMs = 500;
+            initializeAgainst(silent, emptyKeystore(dir));
+
+            verify(callback, timeout(WAIT_MS)).statusUpdated(eq(bridge),
+                    argThat(info -> info.getStatus() == ThingStatus.OFFLINE
+                            && info.getStatusDetail() == ThingStatusDetail.COMMUNICATION_ERROR));
+        }
+    }
+
+    @Test
+    public void disposeDuringTheTlsHandshakeReturnsPromptly(@TempDir Path dir) throws Exception {
+        try (ServerSocket silent = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            silent.setSoTimeout((int) WAIT_MS);
+            initializeAgainst(silent, emptyKeystore(dir));
+            try (Socket accepted = silent.accept()) {
+                Thread.sleep(300); // let the handshake start waiting
+                clearInvocations(callback);
+
+                assertTimeoutPreemptively(Duration.ofSeconds(5), handler::dispose);
+
+                verify(callback, after(1_000).never()).statusUpdated(any(),
+                        argThat(info -> info.getStatusDetail() == ThingStatusDetail.COMMUNICATION_ERROR));
+            }
+        }
+    }
+
+    @Test
+    public void unreachableBridgeIsACommunicationErrorAndIsRetried(@TempDir Path dir) throws Exception {
+        Path keystore = emptyKeystore(dir);
         int closedPort;
         try (ServerSocket probe = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
             closedPort = probe.getLocalPort();
@@ -556,6 +597,6 @@ public class LeapBridgeHandlerTest {
         verify(callback, timeout(WAIT_MS)).statusUpdated(eq(bridge),
                 argThat(info -> info.getStatus() == ThingStatus.OFFLINE
                         && info.getStatusDetail() == ThingStatusDetail.COMMUNICATION_ERROR));
-        assertTimeoutPreemptively(java.time.Duration.ofMillis(WAIT_MS), handler::dispose);
+        assertTimeoutPreemptively(Duration.ofMillis(WAIT_MS), handler::dispose);
     }
 }

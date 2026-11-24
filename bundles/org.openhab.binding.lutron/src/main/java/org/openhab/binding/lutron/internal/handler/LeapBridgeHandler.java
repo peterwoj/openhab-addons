@@ -22,6 +22,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.InterruptedIOException;
 import java.io.OutputStreamWriter;
+import java.net.InetSocketAddress;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
@@ -99,6 +101,8 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
     private static final int DEFAULT_RECONNECT_MINUTES = 5;
     private static final int DEFAULT_HEARTBEAT_MINUTES = 5;
     private static final long KEEPALIVE_TIMEOUT_SECONDS = 30;
+    private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final int HANDSHAKE_TIMEOUT_MS = 30_000;
 
     private static final String STATUS_INITIALIZING = "Initializing";
     private static final String LUTRON_RADIORA_3_PROJECT = "Lutron RadioRA 3 Project";
@@ -151,6 +155,12 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
 
     private @Nullable LeapDeviceDiscoveryService discoveryService;
 
+    // Package-private so that tests can use a short timeout
+    volatile int handshakeTimeoutMs = HANDSHAKE_TIMEOUT_MS;
+
+    private volatile @Nullable SSLSocket connectingSocket;
+    private volatile boolean disposed;
+
     public void setDiscoveryService(LeapDeviceDiscoveryService discoveryService) {
         this.discoveryService = discoveryService;
     }
@@ -171,6 +181,7 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
 
         childHandlerMap.clear();
         groupHandlerMap.clear();
+        disposed = false;
 
         config = getConfigAs(LeapBridgeConfig.class);
         String keystorePassword = (config.keystorePassword == null) ? "" : config.keystorePassword;
@@ -281,8 +292,13 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
 
         try {
             logger.debug("Opening SSL connection to {}:{}", config.ipAddress, config.port);
-            SSLSocket sslsocket = (SSLSocket) sslsocketfactory.createSocket(config.ipAddress, config.port);
+            SSLSocket sslsocket = (SSLSocket) sslsocketfactory.createSocket();
+            connectingSocket = sslsocket;
+            sslsocket.connect(new InetSocketAddress(config.ipAddress, config.port), CONNECT_TIMEOUT_MS);
+            // Bound the handshake, so that a peer that accepts TCP but never speaks TLS cannot hold this task
+            sslsocket.setSoTimeout(handshakeTimeoutMs);
             sslsocket.startHandshake();
+            sslsocket.setSoTimeout(0);
             writer = new BufferedWriter(new OutputStreamWriter(sslsocket.getOutputStream()));
             reader = new BufferedReader(new InputStreamReader(sslsocket.getInputStream()));
             this.sslsocket = sslsocket;
@@ -293,11 +309,25 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
             // port out of valid range
             updateStatus(ThingStatusDetail.CONFIGURATION_ERROR, "Invalid port number");
             return;
+        } catch (SocketTimeoutException e) {
+            // Must precede InterruptedIOException, which it extends
+            if (disposed) {
+                return;
+            }
+            updateStatus(ThingStatusDetail.COMMUNICATION_ERROR, "Timed out opening SSL connection");
+            logger.info("Timed out opening SSL connection: {}", e.getMessage());
+            disconnect(false);
+            scheduleConnectRetry(reconnectInterval);
+            return;
         } catch (InterruptedIOException e) {
             logger.debug("Interrupted while establishing connection");
             Thread.currentThread().interrupt();
             return;
         } catch (IOException e) {
+            if (disposed) {
+                logger.debug("Connection attempt abandoned because the handler was disposed");
+                return;
+            }
             updateStatus(ThingStatusDetail.COMMUNICATION_ERROR, "Error opening SSL connection. Check log.");
             logger.info("Error opening SSL connection: {}", e.getMessage());
             disconnect(false);
@@ -976,6 +1006,16 @@ public class LeapBridgeHandler extends LutronBridgeHandler implements LeapMessag
 
     @Override
     public void dispose() {
+        disposed = true;
+        // A connection attempt in progress holds the handler lock that disconnect() needs; closing its socket ends it
+        SSLSocket connectingSocket = this.connectingSocket;
+        if (connectingSocket != null) {
+            try {
+                connectingSocket.close();
+            } catch (IOException e) {
+                logger.debug("Error closing SSL socket: {}", e.getMessage());
+            }
+        }
         Future<?> asyncInitializeTask = this.asyncInitializeTask;
         if (asyncInitializeTask != null && !asyncInitializeTask.isDone()) {
             asyncInitializeTask.cancel(true); // Interrupt async init task if it isn't done yet
