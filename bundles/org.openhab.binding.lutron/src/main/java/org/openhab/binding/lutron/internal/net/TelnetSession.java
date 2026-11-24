@@ -157,9 +157,18 @@ public class TelnetSession implements Closeable {
 
     private void readInput() throws IOException {
         synchronized (charBuffer) {
+            BufferedReader reader = this.reader;
             if (reader != null) {
                 try {
-                    reader.read(charBuffer);
+                    // This runs on the telnet client's reader thread, which is also the thread that queues incoming
+                    // data. A read that blocks here can never be satisfied, for example when the end-of-stream
+                    // notification of a previous connection already consumed the queued data, so only read what is
+                    // ready.
+                    while (charBuffer.hasRemaining() && reader.ready()) {
+                        if (reader.read(charBuffer) <= 0) {
+                            break;
+                        }
+                    }
                 } catch (IOException e) {
                     logger.debug("TelnetSession readInput: error reading: {}", e.getMessage());
                     throw (e);
