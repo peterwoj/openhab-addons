@@ -64,8 +64,8 @@ public class LutronDuration {
      * Constructor accepting duration in seconds as a BigDecimal
      */
     public LutronDuration(BigDecimal seconds) {
-        if (seconds.compareTo(BigDecimal.ZERO) == -1 || seconds.compareTo(new BigDecimal(MAX_SECONDS)) == 1) {
-            new IllegalArgumentException("Invalid duration");
+        if (seconds.compareTo(BigDecimal.ZERO) < 0 || seconds.compareTo(new BigDecimal(MAX_SECONDS)) > 0) {
+            throw new IllegalArgumentException("Invalid duration");
         }
         this.seconds = seconds.intValue();
         BigDecimal fractional = seconds.subtract(new BigDecimal(seconds.intValue()));

@@ -24,6 +24,7 @@ import java.util.Map;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.junit.jupiter.api.Test;
+import org.openhab.binding.lutron.internal.action.DimmerActions;
 import org.openhab.binding.lutron.internal.protocol.LutronDuration;
 import org.openhab.binding.lutron.internal.protocol.lip.LutronCommandType;
 import org.openhab.core.library.types.OnOffType;
@@ -151,6 +152,36 @@ public class DimmerHandlerTest {
         assertEquals(ThingStatusDetail.CONFIGURATION_ERROR, harness.status().getStatusDetail());
         assertTrue(harness.sent.isEmpty());
         assertThrows(IllegalStateException.class, () -> new DimmerHandler(harness.thing).getIntegrationId());
+    }
+
+    @Test
+    public void negativeFadeTimeIsAConfigurationError() {
+        start(Map.of("fadeInTime", new BigDecimal("-2")));
+
+        assertEquals(ThingStatusDetail.CONFIGURATION_ERROR, harness.status().getStatusDetail());
+        assertTrue(harness.sent.isEmpty());
+    }
+
+    @Test
+    public void excessiveFadeTimeIsAConfigurationError() {
+        start(Map.of("fadeOutTime", new BigDecimal(LutronDuration.MAX_SECONDS + 1)));
+
+        assertEquals(ThingStatusDetail.CONFIGURATION_ERROR, harness.status().getStatusDetail());
+        assertTrue(harness.sent.isEmpty());
+    }
+
+    @Test
+    public void ruleActionIgnoresANegativeFadeTime() {
+        startOnline(Map.of());
+        DimmerActions actions = new DimmerActions();
+        actions.setThingHandler(handler);
+
+        actions.setLevel(50.0, -1.0, 0.0);
+        actions.setLevel(50.0, 0.0, -1.0);
+        assertTrue(harness.takeSent().isEmpty());
+
+        actions.setLevel(50.0, 2.0, 0.0);
+        assertEquals(List.of("#OUTPUT,5,1,50,2,0"), harness.takeSent());
     }
 
     @Test
